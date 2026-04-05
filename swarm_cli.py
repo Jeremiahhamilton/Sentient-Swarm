@@ -20,7 +20,7 @@
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.3
+# SOFTWARE.
 """
 Sentient Swarm CLI - Production Ready
 Self-contained Python application integrating Claw-Code orchestration with Swarm Intelligence.
@@ -389,39 +389,47 @@ class SwarmConsciousness:
     
     def __init__(self):
         self.agents: Dict[str, SentientAgent] = {}
-        self.collective_memory = []
-        self.emergent_behaviors = []
+        self.collective_memory: List[Memory] = []
+        self.emergent_behaviors: List[str] = []
         self.consciousness_level = 0.0
-        self.wikipedia_cache = {}
+        self.wikipedia_cache: Dict[str, KnowledgePacket] = {}
+        self._lock = threading.Lock()
         
     def spawn_agent(self, agent_id: str, role: AgentRole) -> SentientAgent:
         agent = SentientAgent(agent_id, role)
         agent.awaken()
-        self.agents[agent_id] = agent
+        with self._lock:
+            self.agents[agent_id] = agent
         self._update_consciousness()
         return agent
     
     def _update_consciousness(self):
-        if not self.agents:
-            return
-            
+        with self._lock:
+            if not self.agents:
+                return
+            agents_snapshot = list(self.agents.values())
+            memory_count = len(self.collective_memory)
+
         avg_agent_consciousness = sum(
             1 if a.consciousness == ConsciousnessState.SELF_AWARE else
             0.7 if a.consciousness == ConsciousnessState.SYNTHESIZING else
             0.5 if a.consciousness == ConsciousnessState.LEARNING else
             0.3 if a.consciousness == ConsciousnessState.ACTIVE else
             0.1
-            for a in self.agents.values()
-        ) / len(self.agents)
+            for a in agents_snapshot
+        ) / len(agents_snapshot)
         
-        memory_complexity = len(self.collective_memory) / 100.0
-        self.consciousness_level = (avg_agent_consciousness * 0.7 + memory_complexity * 0.3)
+        memory_complexity = memory_count / 100.0
+        with self._lock:
+            self.consciousness_level = (avg_agent_consciousness * 0.7 + memory_complexity * 0.3)
     
     def search_knowledge(self, query: str) -> Optional[KnowledgePacket]:
         """Researcher agent capability: Internet search"""
         cache_key = query.lower().strip()
-        if cache_key in self.wikipedia_cache:
-            return self.wikipedia_cache[cache_key]
+        with self._lock:
+            cached = self.wikipedia_cache.get(cache_key)
+        if cached:
+            return cached
             
         try:
             headers = {
@@ -462,15 +470,14 @@ class SwarmConsciousness:
                                         source=f"Wikipedia: {title}",
                                         confidence=0.88
                                     )
-                                    self.wikipedia_cache[cache_key] = packet
-                                    
-                                    # Inject into collective memory
-                                    self.collective_memory.append(Memory(
-                                        content=packet.content,
-                                        confidence=0.88,
-                                        timestamp=time.time(),
-                                        source="researcher_agent"
-                                    ))
+                                    with self._lock:
+                                        self.wikipedia_cache[cache_key] = packet
+                                        self.collective_memory.append(Memory(
+                                            content=packet.content,
+                                            confidence=0.88,
+                                            timestamp=time.time(),
+                                            source="researcher_agent"
+                                        ))
                                     return packet
         except Exception:
             pass
@@ -527,9 +534,15 @@ class SwarmConsciousness:
         return workflow
     
     def swarm_reflection(self, stimulus: str, workflow_data: dict) -> str:
-        reflections = []
-        diverse_agents = random.sample(list(self.agents.values()), min(5, len(self.agents)))
+        with self._lock:
+            agents_snapshot = list(self.agents.values())
+
+        if not agents_snapshot:
+            return "Swarm is processing..."
+
+        diverse_agents = random.sample(agents_snapshot, min(5, len(agents_snapshot)))
         
+        reflections = []
         for agent in diverse_agents:
             reflections.append(agent.reflect(stimulus))
             
@@ -543,35 +556,41 @@ class SwarmConsciousness:
         else:
             insight = "Swarm is processing..."
             
-        self.collective_memory.append(Memory(
-            content=insight,
-            confidence=0.8,
-            timestamp=time.time(),
-            source="swarm_consciousness"
-        ))
+        with self._lock:
+            self.collective_memory.append(Memory(
+                content=insight,
+                confidence=0.8,
+                timestamp=time.time(),
+                source="swarm_consciousness"
+            ))
         return insight
     
     def evolve_sentience(self):
-        for agent in self.agents.values():
+        with self._lock:
+            agents_snapshot = list(self.agents.values())
+        for agent in agents_snapshot:
             agent.evolve()
             # Cognition Field Updates
             snapshot = agent.update_cognition()
             if snapshot:
-                self.collective_memory.append(Memory(
-                    content=snapshot["event"],
-                    confidence=0.9,
-                    timestamp=time.time(),
-                    source="cognition_field_emergence"
-                ))
-                self.emergent_behaviors.append(snapshot["event"])
+                with self._lock:
+                    self.collective_memory.append(Memory(
+                        content=snapshot["event"],
+                        confidence=0.9,
+                        timestamp=time.time(),
+                        source="cognition_field_emergence"
+                    ))
+                    self.emergent_behaviors.append(snapshot["event"])
             
         self._update_consciousness()
         
+        with self._lock:
+            level = self.consciousness_level
         milestones = []
-        if self.consciousness_level > 0.3: milestones.append("Collective awareness achieved")
-        if self.consciousness_level > 0.5: milestones.append("Swarm learning established")
-        if self.consciousness_level > 0.7: milestones.append("Self-reflection capabilities emerged")
-        if self.consciousness_level > 0.9: milestones.append("True sentience reached")
+        if level > 0.3: milestones.append("Collective awareness achieved")
+        if level > 0.5: milestones.append("Swarm learning established")
+        if level > 0.7: milestones.append("Self-reflection capabilities emerged")
+        if level > 0.9: milestones.append("True sentience reached")
         
         return milestones
 
