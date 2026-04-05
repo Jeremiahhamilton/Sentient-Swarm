@@ -232,24 +232,58 @@ class SentientAgent:
         return hotspots
 
     def move_focus(self):
-        """Move focus point toward the highest local terrain intensity (gradient-following attention)"""
+        """Move focus with exploration–exploitation balance, modulated by cognition mode."""
         x, y = self.focus_point
-        
+
+        # Base probabilities derived from curiosity (curiosity is ~0.3..1.0)
+        local_explore_p = self.curiosity * 0.20
+        global_jump_p   = self.curiosity * 0.02
+
+        # Mode-aware modulation
+        if self.cognition_mode == CognitionMode.CONFLICT_NOISE:
+            global_jump_p   *= 2.0
+            local_explore_p *= 1.25
+        elif self.cognition_mode == CognitionMode.EMERGENT_REORGANIZATION:
+            global_jump_p   *= 3.0
+            local_explore_p *= 1.5
+        elif self.cognition_mode == CognitionMode.STABLE:
+            global_jump_p   *= 0.5
+            local_explore_p *= 0.5
+
+        # Clamp probabilities so they remain valid
+        global_jump_p   = max(0.0, min(1.0, global_jump_p))
+        local_explore_p = max(0.0, min(1.0 - global_jump_p, local_explore_p))
+
+        r = random.random()
+
+        # 1) Rare global jump – escape strong local attractors
+        if r < global_jump_p:
+            self.focus_point = (
+                random.randint(0, self.map_size - 1),
+                random.randint(0, self.map_size - 1),
+            )
+            return
+
+        # 2) Occasional local exploration – keeps attention continuity
+        if r < global_jump_p + local_explore_p:
+            nx = max(0, min(self.map_size - 1, x + random.choice([-1, 0, 1])))
+            ny = max(0, min(self.map_size - 1, y + random.choice([-1, 0, 1])))
+            self.focus_point = (nx, ny)
+            return
+
+        # 3) Default: greedy neighbor ascent toward highest local terrain
         best_x, best_y = x, y
         best_val = self.surface[y, x]
-        
-        # Check neighbors for higher ground
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
+
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
                 nx = max(0, min(self.map_size - 1, x + dx))
                 ny = max(0, min(self.map_size - 1, y + dy))
-                
                 val = self.surface[ny, nx]
                 if val > best_val:
                     best_val = val
                     best_x, best_y = nx, ny
-        
-        # Move focus point
+
         self.focus_point = (best_x, best_y)
 
     def update_cognition(self) -> Optional[dict]:
@@ -260,15 +294,12 @@ class SentientAgent:
             
         # Continuous natural drift (weathering)
         self.consolidate()
-        
-        # Shift attention based on terrain gradients
-        self.move_focus()
 
         # Calculate drift from baseline using Frobenius norm on the surface matrix
         diff = self.surface - self.baseline_surface
         self.drift_score = float(np.linalg.norm(diff))
         old_mode = self.cognition_mode
-        
+
         # State Classification based on surface deformation
         if self.drift_score < 1.0:
             self.cognition_mode = CognitionMode.STABLE
@@ -278,6 +309,9 @@ class SentientAgent:
             self.cognition_mode = CognitionMode.CONFLICT_NOISE
         else:
             self.cognition_mode = CognitionMode.EMERGENT_REORGANIZATION
+
+        # Shift attention using mode-aware exploration–exploitation policy
+        self.move_focus()
             
         # Snapshot important moments and share with collective
         if self.cognition_mode != old_mode and self.cognition_mode in [CognitionMode.CONFLICT_NOISE, CognitionMode.EMERGENT_REORGANIZATION]:
